@@ -1,0 +1,40 @@
+/* Custom styles for Inter font and general body */
+body {
+    font-family: 'Inter', sans-serif;
+    background-color: #f0f2f5; /* Light gray background */
+}
+/* Style for date input to ensure consistent height */
+input[type="date"] {
+    min-height: 2.5rem; /* Equivalent to h-10 in Tailwind */
+    padding: 0.5rem 0.75rem; /* py-2 px-3 */
+    line-height: 1.25; /* leading-tight */
+}
+/* Custom styles for Bootstrap overrides and components */
+.container {
+    max-width: 960px; /* Adjust container width for larger screens */
+}
+
+.card {
+    border-radius: 0.75rem; /* Rounded corners for cards */
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); /* Subtle shadow */
+}
+
+.btn-primary {
+    background-color: #4a90e2; /* Custom primary button color */
+    border-color: #4a90e2;
+}
+
+.btn-primary:hover {
+    background-color: #357ABD;
+    border-color: #357ABD;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    body {
+        padding-top: 1rem; /* Add some padding for mobile */
+    }
+    .card {
+        margin-bottom: 1rem; /* Space out cards on smaller screens */
+    }
+}
