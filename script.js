@@ -1,6 +1,14 @@
 // Global array to store trip data
 let trips = [];
 
+// --- Supabase Client Initialization ---
+// TODO: Replace with your Supabase project's URL and anon key
+const SUPABASE_URL = 'https://erztroazpiejpnimxzsl.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVyenRyb2F6cGllanBuaW14enNsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTE1ODQxMDYsImV4cCI6MjA2NzE2MDEwNn0.n8T3NzdoNKQBLPfaMYkoIIvGWYxlvjpN8yXiP-2uitw';
+
+// Create a single supabase client for interacting with your database
+const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
 // DOM elements
 const cityInput = document.getElementById('city');
 const countryInput = document.getElementById('country');
@@ -113,38 +121,27 @@ function summarizeContinentDays(trips, year = null) {
 // --- Data Persistence ---
 
 /**
- * Loads trip data from localStorage.
+ * Loads trip data from the Supabase database.
  */
-function loadTrips() {
-    const storedTrips = localStorage.getItem('continentTrackerTrips');
-    if (storedTrips) {
-        try {
-            trips = JSON.parse(storedTrips);
-            // Ensure 'id' exists for older entries
-            trips.forEach(trip => {
-                if (!trip.id) {
-                    trip.id = Date.now().toString() + Math.random().toString(36).substring(2, 9);
-                }
-            });
-        } catch (e) {
-            console.error("Error parsing stored trips:", e);
-            trips = []; // Reset if data is corrupted
-            showCustomModal("Data Error", "Could not load trip data. Local storage might be corrupted.", false);
-        }
-    } else {
-        trips = [];
-    }
-}
+async function loadTrips() {
+    const { data, error } = await supabaseClient
+        .from('trips')
+        .select('*');
 
-/**
- * Saves current trip data to localStorage.
- */
-function saveTrips() {
-    try {
-        localStorage.setItem('continentTrackerTrips', JSON.stringify(trips));
-    } catch (e) {
-        console.error("Error saving trips to local storage:", e);
-        showCustomModal("Save Error", "Could not save trip data to local storage.", false);
+    if (error) {
+        console.error('Error fetching trips:', error);
+        // Provide more specific feedback for common connection issues
+        if (error.message.includes('Failed to fetch')) {
+            showCustomModal("Connection Error", "Could not reach the database. Please check your internet connection and the Supabase URL.", false);
+        } else if (error.code === 'PGRST116') { // Error for schema/table not found
+            showCustomModal("Database Error", "The 'trips' table was not found. Please ensure it has been created in your Supabase project.", false);
+        } else {
+            showCustomModal("Data Error", `Could not load trip data. ${error.message}`, false);
+        }
+        trips = [];
+    } else {
+        console.log("Successfully connected to Supabase and fetched data.");
+        trips = data || [];
     }
 }
 
@@ -280,8 +277,16 @@ async function handleAddTrip() {
         days_spent: daysSpent
     };
 
-    trips.push(newTrip);
-    saveTrips();
+    const { error } = await supabaseClient.from('trips').insert([newTrip]);
+
+    if (error) {
+        console.error('Error adding trip:', error);
+        await showCustomModal("Save Error", "Could not save the trip to the database.", false);
+        return;
+    }
+
+    // Reload data from DB and update the UI
+    await loadTrips();
     updateUI();
 
     // Clear form fields
@@ -304,8 +309,15 @@ async function handleDeleteTrip(event) {
         const confirmed = await showCustomModal("Confirm Deletion", "Are you sure you want to delete this trip?", true);
 
         if (confirmed) {
-            trips = trips.filter(trip => trip.id !== tripIdToDelete);
-            saveTrips();
+            const { error } = await supabaseClient.from('trips').delete().eq('id', tripIdToDelete);
+
+            if (error) {
+                console.error('Error deleting trip:', error);
+                await showCustomModal("Delete Error", "Could not delete the trip from the database.", false);
+                return;
+            }
+
+            await loadTrips();
             updateUI();
             await showCustomModal("Deleted", "Trip deleted successfully.", false);
         }
@@ -319,8 +331,17 @@ async function handleClearData() {
     const confirmed = await showCustomModal("Clear All Data", "Are you sure you want to delete ALL your trip data? This action cannot be undone.", true);
 
     if (confirmed) {
-        localStorage.removeItem('continentTrackerTrips');
-        trips = [];
+        // A safe way to target all rows for deletion
+        const { error } = await supabaseClient.from('trips').delete().neq('id', 'a-value-that-will-never-exist-' + Math.random());
+
+        if (error) {
+            console.error('Error clearing data:', error);
+            await showCustomModal("Clear Error", "Could not clear trip data from the database.", false);
+            return;
+        }
+
+        // Reload data (which will be empty) and update UI
+        await loadTrips();
         updateUI();
         await showCustomModal("Cleared", "All trip data has been cleared.", false);
     }
@@ -328,13 +349,13 @@ async function handleClearData() {
 
 // --- Initialization ---
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
     // Set default date values to today
     const today = new Date().toISOString().split('T')[0];
     startDateInput.value = today;
     endDateInput.value = today;
 
-    loadTrips();
+    await loadTrips(); // Load initial data from Supabase
     populateYearFilter();
     updateUI(); // Initial UI render
 
