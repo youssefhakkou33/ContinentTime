@@ -20,6 +20,7 @@ const continentRankingList = document.getElementById('continentRankingList');
 const tripsTableBody = document.querySelector('#tripsTable tbody');
 const yearFilter = document.getElementById('yearFilter');
 const clearDataBtn = document.getElementById('clearDataBtn');
+const loadingOverlay = document.getElementById('loadingOverlay');
 
 // Custom Modal elements
 const customModal = document.getElementById('customModal');
@@ -29,6 +30,20 @@ const modalConfirmBtn = document.getElementById('modalConfirmBtn');
 const modalCancelBtn = document.getElementById('modalCancelBtn');
 
 // --- Utility Functions ---
+
+/**
+ * Shows the loading overlay.
+ */
+function showLoader() {
+    loadingOverlay.classList.remove('hidden');
+}
+
+/**
+ * Hides the loading overlay.
+ */
+function hideLoader() {
+    loadingOverlay.classList.add('hidden');
+}
 
 /**
  * Displays a custom modal for alerts or confirmations.
@@ -44,19 +59,28 @@ function showCustomModal(title, message, isConfirm = false) {
         modalCancelBtn.style.display = isConfirm ? 'inline-block' : 'none'; // Show cancel only for confirm
         modalConfirmBtn.textContent = isConfirm ? 'Confirm' : 'OK';
 
+        // Animation: Make it visible but transparent/scaled down
         customModal.classList.remove('hidden');
+        requestAnimationFrame(() => {
+            customModal.classList.remove('opacity-0', 'scale-95');
+        });
+
+        const hideModal = () => {
+            customModal.classList.add('opacity-0', 'scale-95');
+            setTimeout(() => {
+                customModal.classList.add('hidden');
+                modalConfirmBtn.removeEventListener('click', confirmHandler);
+                modalCancelBtn.removeEventListener('click', cancelHandler);
+            }, 300); // Match transition duration
+        };
 
         const confirmHandler = () => {
-            customModal.classList.add('hidden');
-            modalConfirmBtn.removeEventListener('click', confirmHandler);
-            modalCancelBtn.removeEventListener('click', cancelHandler);
+            hideModal();
             resolve(true);
         };
 
         const cancelHandler = () => {
-            customModal.classList.add('hidden');
-            modalConfirmBtn.removeEventListener('click', confirmHandler);
-            modalCancelBtn.removeEventListener('click', cancelHandler);
+            hideModal();
             resolve(false);
         };
 
@@ -124,24 +148,29 @@ function summarizeContinentDays(trips, year = null) {
  * Loads trip data from the Supabase database.
  */
 async function loadTrips() {
-    const { data, error } = await supabaseClient
-        .from('trips')
-        .select('*');
+    showLoader();
+    try {
+        const { data, error } = await supabaseClient
+            .from('trips')
+            .select('*');
 
-    if (error) {
-        console.error('Error fetching trips:', error);
-        // Provide more specific feedback for common connection issues
-        if (error.message.includes('Failed to fetch')) {
-            showCustomModal("Connection Error", "Could not reach the database. Please check your internet connection and the Supabase URL.", false);
-        } else if (error.code === 'PGRST116') { // Error for schema/table not found
-            showCustomModal("Database Error", "The 'trips' table was not found. Please ensure it has been created in your Supabase project.", false);
+        if (error) {
+            console.error('Error fetching trips:', error);
+            // Provide more specific feedback for common connection issues
+            if (error.message.includes('Failed to fetch')) {
+                showCustomModal("Connection Error", "Could not reach the database. Please check your internet connection and the Supabase URL.", false);
+            } else if (error.code === 'PGRST116') { // Error for schema/table not found
+                showCustomModal("Database Error", "The 'trips' table was not found. Please ensure it has been created in your Supabase project.", false);
+            } else {
+                showCustomModal("Data Error", `Could not load trip data. ${error.message}`, false);
+            }
+            trips = [];
         } else {
-            showCustomModal("Data Error", `Could not load trip data. ${error.message}`, false);
+            console.log("Successfully connected to Supabase and fetched data.");
+            trips = data || [];
         }
-        trips = [];
-    } else {
-        console.log("Successfully connected to Supabase and fetched data.");
-        trips = data || [];
+    } finally {
+        hideLoader();
     }
 }
 
@@ -195,14 +224,20 @@ function updateUI() {
     if (sortedContinents.length === 0) {
         continentRankingList.innerHTML = '<li class="text-gray-500">No continent data for this period.</li>';
     } else {
-        sortedContinents.forEach(([continent, days]) => {
+        sortedContinents.forEach(([continent, days], index) => {
             const listItem = document.createElement('li');
-            listItem.className = 'flex justify-between items-center bg-white p-3 rounded-md shadow-sm';
+            // Start transparent for animation
+            listItem.className = 'flex justify-between items-center bg-white p-3 rounded-md shadow-sm opacity-0';
             listItem.innerHTML = `
                 <span class="font-medium text-gray-800">${continent}</span>
                 <span class="text-blue-600 font-semibold">${days} Days</span>
             `;
             continentRankingList.appendChild(listItem);
+            // Staggered fade-in animation
+            setTimeout(() => {
+                listItem.style.transition = 'opacity 0.5s ease-out';
+                listItem.classList.remove('opacity-0');
+            }, index * 100);
         });
     }
 
@@ -217,11 +252,11 @@ function updateUI() {
         cell.className = 'text-center py-4 text-gray-500';
         cell.textContent = 'No trips recorded for this period.';
     } else {
-        sortedTripsForDisplay.forEach(trip => {
+        sortedTripsForDisplay.forEach((trip, index) => {
             const row = tripsTableBody.insertRow();
-            row.className = 'hover:bg-gray-50'; // Hover effect for rows
+            // Start transparent for animation
+            row.className = 'hover:bg-gray-50 opacity-0';
 
-            // Use dataset to store the trip ID on the row for easy deletion
             row.dataset.tripId = trip.id;
 
             row.innerHTML = `
@@ -235,6 +270,11 @@ function updateUI() {
                     <button data-id="${trip.id}" class="delete-btn text-red-600 hover:text-red-900 transition duration-150 ease-in-out">Delete</button>
                 </td>
             `;
+            // Staggered fade-in animation
+            setTimeout(() => {
+                row.style.transition = 'opacity 0.5s ease-out';
+                row.classList.remove('opacity-0');
+            }, index * 100);
         });
     }
 }
@@ -245,6 +285,7 @@ function updateUI() {
  * Handles adding a new trip when the button is clicked.
  */
 async function handleAddTrip() {
+    showLoader();
     const city = cityInput.value.trim();
     const country = countryInput.value.trim();
     const startDate = startDateInput.value;
@@ -252,50 +293,55 @@ async function handleAddTrip() {
     const continent = continentSelect.value;
 
     if (!city || !country || !startDate || !endDate) {
+        hideLoader();
         await showCustomModal("Input Error", "Please fill in all fields.", false);
         return;
     }
 
     const startDateTime = new Date(startDate);
     const endDateTime = new Date(endDate);
-
     if (startDateTime > endDateTime) {
+        hideLoader();
         await showCustomModal("Input Error", "Start Date cannot be after End Date.", false);
         return;
     }
 
-    const daysSpent = calculateDaysBetween(startDate, endDate);
-    const tripId = Date.now().toString() + Math.random().toString(36).substring(2, 9); // Simple unique ID
+    try {
+        const daysSpent = calculateDaysBetween(startDate, endDate);
+        const tripId = Date.now().toString() + Math.random().toString(36).substring(2, 9); // Simple unique ID
 
-    const newTrip = {
-        id: tripId,
-        city,
-        country,
-        start_date: startDate,
-        end_date: endDate,
-        continent,
-        days_spent: daysSpent
-    };
+        const newTrip = {
+            id: tripId,
+            city,
+            country,
+            start_date: startDate,
+            end_date: endDate,
+            continent,
+            days_spent: daysSpent
+        };
 
-    const { error } = await supabaseClient.from('trips').insert([newTrip]);
+        const { error } = await supabaseClient.from('trips').insert([newTrip]);
 
-    if (error) {
-        console.error('Error adding trip:', error);
-        await showCustomModal("Save Error", "Could not save the trip to the database.", false);
-        return;
+        if (error) {
+            console.error('Error adding trip:', error);
+            await showCustomModal("Save Error", "Could not save the trip to the database.", false);
+            return;
+        }
+
+        // Reload data from DB and update the UI
+        await loadTrips(); // This will handle its own loader
+        updateUI();
+
+        // Clear form fields
+        cityInput.value = '';
+        countryInput.value = '';
+        startDateInput.value = '';
+        endDateInput.value = '';
+        continentSelect.value = 'Africa'; // Reset to default
+        await showCustomModal("Success", "Trip added successfully!", false);
+    } finally {
+        hideLoader();
     }
-
-    // Reload data from DB and update the UI
-    await loadTrips();
-    updateUI();
-
-    // Clear form fields
-    cityInput.value = '';
-    countryInput.value = '';
-    startDateInput.value = '';
-    endDateInput.value = '';
-    continentSelect.value = 'Africa'; // Reset to default
-    await showCustomModal("Success", "Trip added successfully!", false);
 }
 
 /**
@@ -309,17 +355,22 @@ async function handleDeleteTrip(event) {
         const confirmed = await showCustomModal("Confirm Deletion", "Are you sure you want to delete this trip?", true);
 
         if (confirmed) {
-            const { error } = await supabaseClient.from('trips').delete().eq('id', tripIdToDelete);
+            showLoader();
+            try {
+                const { error } = await supabaseClient.from('trips').delete().eq('id', tripIdToDelete);
 
-            if (error) {
-                console.error('Error deleting trip:', error);
-                await showCustomModal("Delete Error", "Could not delete the trip from the database.", false);
-                return;
+                if (error) {
+                    console.error('Error deleting trip:', error);
+                    await showCustomModal("Delete Error", "Could not delete the trip from the database.", false);
+                    return;
+                }
+
+                await loadTrips();
+                updateUI();
+                await showCustomModal("Deleted", "Trip deleted successfully.", false);
+            } finally {
+                hideLoader();
             }
-
-            await loadTrips();
-            updateUI();
-            await showCustomModal("Deleted", "Trip deleted successfully.", false);
         }
     }
 }
@@ -331,19 +382,24 @@ async function handleClearData() {
     const confirmed = await showCustomModal("Clear All Data", "Are you sure you want to delete ALL your trip data? This action cannot be undone.", true);
 
     if (confirmed) {
-        // A safe way to target all rows for deletion
-        const { error } = await supabaseClient.from('trips').delete().neq('id', 'a-value-that-will-never-exist-' + Math.random());
+        showLoader();
+        try {
+            // A safe way to target all rows for deletion
+            const { error } = await supabaseClient.from('trips').delete().neq('id', 'a-value-that-will-never-exist-' + Math.random());
 
-        if (error) {
-            console.error('Error clearing data:', error);
-            await showCustomModal("Clear Error", "Could not clear trip data from the database.", false);
-            return;
+            if (error) {
+                console.error('Error clearing data:', error);
+                await showCustomModal("Clear Error", "Could not clear trip data from the database.", false);
+                return;
+            }
+
+            // Reload data (which will be empty) and update UI
+            await loadTrips();
+            updateUI();
+            await showCustomModal("Cleared", "All trip data has been cleared.", false);
+        } finally {
+            hideLoader();
         }
-
-        // Reload data (which will be empty) and update UI
-        await loadTrips();
-        updateUI();
-        await showCustomModal("Cleared", "All trip data has been cleared.", false);
     }
 }
 
